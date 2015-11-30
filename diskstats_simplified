@@ -1,0 +1,442 @@
+#!/usr/bin/python
+#
+#
+# See also:
+# - https://www.kernel.org/doc/Documentation/block/stat.txt
+#
+# CONSIDER:
+# - dedupe devices, e.g. by SN
+# - Namne devices (SN? type?)
+# - see whether we should be reading /proc/diskstats instead, see:
+#   https://www.kernel.org/doc/Documentation/iostats.txt
+#
+import os
+import sys
+import time
+import glob
+import pickle
+import pprint
+
+
+sector_size = 512   # assumption, VERIFY.  Used for calculation of bandwidth in bytes
+
+colors=[ # could use 'COLOUR1' .. 'COLOUR28' (or ..20), see http://munin-monitoring.org/wiki/fieldname.colour
+    'ffff00','ff00ff','00ffff',
+    'ff0000','0000ff','ff0000',
+
+    'ffaaaa','aaffaa','aaaaff',
+    'ffffaa','ffaaff','aaffff',
+    
+    '00ffaa','ffaa00','ff00aa',
+    '00aaff','aaff00','aa00ff',
+]
+givenout = {}
+def str_to_color(s):
+    ' give the same string the same color the same run of this script '
+    if s not in givenout:
+        choosenow = len(givenout)
+        givenout[s] = choosenow
+        
+    return colors[ givenout[s]%len(colors) ]
+
+    
+
+def devname_to_prodser(devname=None):
+    ''' If you don't hand in a devname, it will return a list of pairs,
+        basically just the contents of /dev/disk/by-id with items like
+        ('ata-HGST_HDN724030ALE640_PK1234P8JKASSP', 'sdb2')
+        
+        (which is not *always* as informative as you'ld think, but typically as informative as is possible)
+
+        If you do hand in a devname (like sda or /dev/sda) it returns a list of things
+        that refer to it -- which is sorted, so you can guess that ata- will be first.
+    '''
+    if devname:
+        devname = os.path.basename(devname)
+
+    d={}    
+    base = '/dev/disk/by-id/' 
+    for item in os.listdir(base):
+        #if item.startswith('wnn')
+        fullpath = os.path.join(base, item)
+        if os.path.islink(fullpath):
+            target = os.path.normpath( os.path.join( base, os.readlink(fullpath) ) ) # sort of irrelevant when we only want the basename
+            tbn = os.path.basename(target)
+            d[item] = tbn
+    if devname==None:
+        return d.items()
+    else:
+        ret = []
+        for did,devnm in d.items():
+            if devnm==devname:
+                ret.append(did)
+        return sorted(ret)
+
+
+### Parse system stats ###
+def get_current_state():
+    ' minor wrapping around the following two functions '
+    interesting = interesting_disk_statpaths()
+    current_state = {}
+    for statpath in interesting:
+        #print "  looking at %r"%statpath
+        devdict = parse_diskstats( statpath )
+        devname = devdict['devname']
+        current_state[ devname ] = devdict
+    return current_state
+
+def interesting_disk_statpaths(ignore_loop=True, ignore_ram=True, ignore_floppy=True ):
+    ''' See which disks we can get stats for, and ignore some things we probably do not care about '''
+    ret = []
+    for devstatpath in glob.glob( '/sys/block/*/stat'):
+    	if ignore_loop and '/loop' in devstatpath:
+            continue
+    	if ignore_ram and '/ram' in devstatpath:
+            continue
+    	if ignore_floppy and '/fd' in devstatpath:
+            continue
+        ret.append( devstatpath )        
+    return ret
+    
+def parse_diskstats(devpath):
+    ' return a dict with info for a single device '
+    f = open(devpath)
+    ret = {}
+    ret['time']    = time.time()
+    ret['devname'] = devpath[11:-5] # /sys/block/*/stat
+    try:
+        for line in f.readlines():
+            line = line.strip()
+            if len(line)==0:
+                continue
+            else:
+                linenumbers = line.split()
+                ret['read_reqs']        = float( linenumbers[0]  ) # int is technically more accurate, 
+                ret['read_merge_reqs']  = float( linenumbers[1]  ) #  but means more castig later,and I'm lazy :)
+                ret['read_sectors']     = float( linenumbers[2]  )
+                ret['read_wait_ms']     = float( linenumbers[3]  )
+                ret['write_reqs']       = float( linenumbers[4]  )
+                ret['write_merge_reqs'] = float( linenumbers[5]  )
+                ret['write_sectors']    = float( linenumbers[6]  )
+                ret['write_wait_ms']    = float( linenumbers[7]  )
+                ret['inflight_ios']     = float( linenumbers[8]  )
+                ret['active_ms']        = float( linenumbers[9]  )
+                ret['queuetime_ms']     = float( linenumbers[10] )
+    finally:   
+        f.close()
+    return ret
+    
+
+
+### Storage so that we could calculate difference over time ###
+
+def choose_state_location( trylocs = ['/run/shm', '/dev/shm', '/tmp'] ): # Try to do this in RAM, fall back to tmp (which is probably a disk)
+    retpath = None
+    for trydir in trylocs:
+        if os.access(trydir, os.W_OK):
+            trypath = os.path.join(trydir,'diskstat_state')
+            if os.access( trypath, os.W_OK):
+                retpath = trypath
+                break
+            else: # try creating, to be sure
+                try:
+                    f=open(trypath,'wb')
+                    f.close()
+                    retpath = trypath
+                    break
+                except IOError:
+                    pass
+    return retpath
+
+def store_state( oo ):
+    path = choose_state_location()
+    pickle.dump( oo, open( path, "wb" ) )
+
+def get_prev_state():
+    try:
+        path = choose_state_location()
+        return pickle.load( open( path, "rb" ) )
+    except EOFError:
+        return {}
+
+
+### The interesting calculations ###
+
+def state_diff(prev_state, cur_state, debugprint=False):
+    ''' Calculate interesting statistics from two different state dicts
+        Returns a new dict.
+        Keep in mind that it will only have entries for devices for which we had previous state.
+    '''
+    ret = {}
+    for devname in cur_state:
+        if devname not in prev_state:
+            # Could emit a warning?
+            continue # no previous state (there should be the next run)
+        ret[devname]={}
+        prevdict = prev_state[devname]
+        curdict  = cur_state[devname]
+        #print prevdict
+        #print curdict
+        
+        timediff_sec = curdict['time'] - prevdict['time']
+        
+        diff_read_reqs   = curdict['read_reqs']  - prevdict['read_reqs']
+        diff_write_reqs  = curdict['write_reqs'] - prevdict['write_reqs']
+        diff_reqs        = diff_read_reqs + diff_write_reqs
+        iops             = diff_reqs / timediff_sec
+        
+        if diff_reqs == 0:
+            read_percentage   = 0.
+            write_percentage  = 0.
+        else:
+            read_percentage  = (100.0 * diff_read_reqs)  / diff_reqs
+            write_percentage = (100.0 * diff_write_reqs) / diff_reqs
+           
+        
+        read_wait_ms  = curdict['read_wait_ms']  - prevdict['read_wait_ms']
+        write_wait_ms = curdict['write_wait_ms'] - prevdict['write_wait_ms']
+        active_ms     = curdict['active_ms'] - prevdict['active_ms']
+        queuetime_ms  = curdict['queuetime_ms'] - prevdict['queuetime_ms']
+        
+        read_bytes =  (curdict['read_sectors']  - prevdict['read_sectors'])  * sector_size
+        write_bytes = (curdict['write_sectors'] - prevdict['write_sectors']) * sector_size
+        
+        utilization = (active_ms / timediff_sec)/10.    # /10 is /1000 for ms and *100 for %
+        
+        ret[devname]['iops']                   = int( iops                              )
+        ret[devname]['read_percentage']        = int( read_percentage                   )
+        ret[devname]['write_percentage']       = int( write_percentage                  )
+        ret[devname]['read_bytespersecond']    = int( read_bytes / timediff_sec         )
+        ret[devname]['write_bytespersecond']   = int( write_bytes / timediff_sec        )
+        ret[devname]['activity_mspersecond']   = int( (active_ms / timediff_sec)        )
+        ret[devname]['utilization_percent']    = int( utilization                       )
+        ret[devname]['readwait_mspersecond']   = int( float(read_wait_ms)/timediff_sec  )
+        ret[devname]['writewait_mspersecond']  = int( float(write_wait_ms)/timediff_sec ) 
+        
+        if debugprint and 1:
+            from helpers_format import kmg
+            
+            print '\n--- diffstats for %r--- '%devname
+            print ' previous state from %.1f seconds ago'%timediff_sec
+
+            print "Total IOs: %-7d  IOPS: %-7.1f    read%%: %-3d    write%%: %-3d"%( diff_reqs, iops,
+                                                                                     read_percentage, write_percentage )
+            print "Total and average stalled read time:  %5d ms   %5d ms"%(read_wait_ms, float(read_wait_ms)/timediff_sec)
+            print "Total and average stalled write time: %5d ms   %5d ms"%(write_wait_ms, float(write_wait_ms)/timediff_sec)
+
+            print "Total and average activity: %d ms   %d ms each sec,   utilization: %.1f%%"%( active_ms,
+                                                                                                active_ms / timediff_sec,
+                                                                                               (active_ms / timediff_sec)/10. )
+                                                      
+            print "Total and average read size:  %9sB   %9sB/sec"%( kmg(read_bytes), kmg(read_bytes / timediff_sec) )
+            print "Total and average write size: %9sB   %9sB/sec"%( kmg(write_bytes), kmg(write_bytes / timediff_sec) )
+
+        if debugprint and 1:
+            pprint.pprint(ret[devname])
+
+    return ret
+
+
+    
+def main():
+    if len(sys.argv)>1 and sys.argv[1] == 'debug':
+        print 'Fetching state from proc'
+        current_state = get_current_state()
+
+        print "Fetching previous state"
+        prev_state = get_prev_state()
+        
+        print 'Calculating averages since last stored state'
+        state_diff( prev_state, current_state, True )
+
+        print 'Storing current state for next-round comparison'       
+        store_state( current_state )
+
+    else:
+        config = ( len(sys.argv)>1  and  sys.argv[1] == 'config')
+        
+        current_state = get_current_state()
+        prev_state = get_prev_state()
+        changes = state_diff( prev_state, current_state, False )
+
+        if not config: # next phase starts when munin asks for (diff)values (could be done afther the below does not fail)
+            store_state( current_state )
+            
+        # Produce the stuff munin wants to see:
+        
+        # bandwidth (stacking) ##################################################################
+        print 'multigraph avg_throughput'
+        if config:
+            print "graph_category disk"
+            print 'graph_title IO throughput'
+            print "graph_vlabel bytes / second"
+            #print 'graph_args -l -900000000 -u 900000000'
+   
+        # CONSIDER: do our own coloring so we can make them consistent between read and write?
+        rtotal = 0
+        wtotal = 0
+        first = True
+        for devname in sorted(changes):
+            try:
+                sername = devname_to_prodser(devname)[0].split('-',1)[1]
+                safename = sername.encode('hex_codec')
+            except:
+                sername = devname
+                safename = devname.encode('hex_codec')
+            if config:
+                print "%s_rbyps.label %s read"%(safename, sername )
+                print "%s_rbyps.type GAUGE"%(safename)
+                print "%s_rbyps.colour %s"%(safename, str_to_color(devname))                
+                if first:
+                    print "%s_rbyps.draw AREA"%(safename,)
+                    first = False
+                else:
+                    print "%s_rbyps.draw STACK"%(safename,)
+            else:
+                print "%s_rbyps.value %d"%(safename, changes[devname]['read_bytespersecond'])
+                rtotal += changes[devname]['read_bytespersecond']
+    
+        first = True
+        for devname in sorted(changes):
+            try:
+                sername = devname_to_prodser(devname)[0].split('-',1)[1]
+                safename = sername.encode('hex_codec')
+            except:
+                sername = devname
+                safename = devname.encode('hex_codec')
+            if config:
+                print "%s_wbyps.label %s write"%(safename,sername)
+                print "%s_wbyps.type GAUGE"%(safename)            
+                print "%s_wbyps.colour %s"%(safename, str_to_color(devname))                
+                if first:                
+                    print "%s_wbyps.draw AREA"%(safename,)
+                    first = False
+                else:
+                    print "%s_wbyps.draw STACK"%(safename,)
+            else:
+                print "%s_wbyps.value %d"%(safename, -changes[devname]['write_bytespersecond'])
+                wtotal += changes[devname]['write_bytespersecond']
+
+        if config:
+            print "total_rbyps.label total read"
+            print "total_rbyps.type GAUGE"
+            print "total_rbyps.draw LINE0"
+            print "total_wbyps.label total write"
+            print "total_wbyps.type GAUGE"
+            print "total_wbyps.draw LINE0"
+            print "total_byps.label total read+write"
+            print "total_byps.type GAUGE"
+            print "total_byps.draw LINE0"
+        else:
+            print "total_rbyps.value %s"%(rtotal,)
+            print "total_wbyps.value %s"%(wtotal,)
+            print "total_byps.value %s"%(rtotal+wtotal)
+                
+
+        # iops ################################################################################
+        print 
+        print 'multigraph iops'
+        if config:
+            print "graph_category disk"
+            print 'graph_title IOPS'
+            print 'graph_args -l 0 -u 1000 -r'
+            print 'graph_vlabel IOs per second'
+
+        total_iops = 0
+        for devname in sorted(changes):
+            try:
+                sername = devname_to_prodser(devname)[0].split('-',1)[1]
+                safename = sername.encode('hex_codec')
+            except:
+                sername = devname
+                safename = devname.encode('hex_codec')
+            if config:
+                print "%s_iops.label %s"%(safename, sername)
+                print "%s_iops.colour %s"%(safename, str_to_color(devname))                
+                print "%s_iops.draw LINE1"%(safename,)
+            else:
+                print "%s_iops.value %d"%(safename, changes[devname]['iops'])
+                total_iops += changes[devname]['iops']
+        if config:
+            print "total_iops.label total IOPS"
+            print "total_iops.type GAUGE"
+            print "total_iops.draw LINE0"
+        else:
+            print "total_iops.value %s"%(total_iops,)
+                
+        # wait time ###########################################################################
+        print
+        print 'multigraph avg_wait'
+        if config:
+            print "graph_category disk"
+            print 'graph_title Wait time'
+            print "graph_vlabel ms each second"
+            print "graph_args -l -1500 -u 1500 -r"
+                    
+        first = True
+        for devname in sorted(changes):
+            try:
+                sername = devname_to_prodser(devname)[0].split('-',1)[1]
+                safename = sername.encode('hex_codec')
+            except:
+                sername = devname
+                safename = devname.encode('hex_codec')
+            if config:
+                print "%s_rwait.label %s read"%(safename,sername)
+                print "%s_rwait.type GAUGE"%(safename)
+                print "%s_rwait.colour %s"%(safename, str_to_color(devname))                                
+                if first:
+                    print "%s_rwait.line 1000:cc6666"%(safename,)
+                    first = False
+                print "%s_rwait.draw LINE1"%(safename,)
+            else:
+                print "%s_rwait.value %d"%(safename, changes[devname]['readwait_mspersecond'])
+
+        first = True
+        for devname in sorted(changes):
+            try:
+                sername = devname_to_prodser(devname)[0].split('-',1)[1]
+                safename = sername.encode('hex_codec')
+            except: 
+                sername = devname
+                safename = devname.encode('hex_codec')
+                pass
+            if config:
+                print "%s_wwait.label %s write"%(safename,sername)
+                print "%s_wwait.type GAUGE"%(safename)
+                print "%s_wwait.colour %s"%(safename, str_to_color(devname))                                
+                if first:
+                    print "%s_wwait.line -1000:cc6666"%(safename,)
+                    first = False
+                print "%s_wwait.draw LINE1"%(safename,)
+            else:
+                print "%s_wwait.value %d"%(safename, -changes[devname]['writewait_mspersecond'])
+        
+ 
+        # utilization ########################################################################
+        print
+        print 'multigraph avg_util'
+        if config:
+            print "graph_category disk"
+            print 'graph_title Utilization'
+            print 'graph_args -l 0 -u 100 -r'
+            print "graph_vlabel % busy"
+            
+        for devname in sorted(changes):
+            try:
+                sername = devname_to_prodser(devname)[0].split('-',1)[1]
+                safename = sername.encode('hex_codec')
+            except:
+                sername = devname
+                safename = devname.encode('hex_codec')
+            if config:
+                print "%s_util.label %s"%(safename, sername)
+                print "%s_util.draw LINE1"%(safename,)
+                print "%s_util.colour %s"%(safename, str_to_color(devname))                                
+
+            else:
+                print "%s_util.value %d"%(safename, changes[devname]['utilization_percent'])
+
+
+if __name__ == '__main__':
+    main()

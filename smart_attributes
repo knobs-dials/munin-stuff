@@ -1,0 +1,141 @@
+#!/usr/bin/python
+'''
+Reads SMART attributes, reports the ones relating to sector errors.
+
+You will probably want a sudoers line like:
+munin     ALL=(root)   NOPASSWD: /usr/sbin/smartctl
+'''
+import sys
+import glob
+import subprocess
+import re
+
+
+drives = sorted(glob.glob('/dev/sd?')) # todo: dedupe (by serial?), so we can do 's[dg]?' ?
+
+        
+def parse_smartctl():
+    ''' Currently returns in three different sections
+        - sector stuff
+        - spin and hours stuff
+        - temperatures
+    '''
+    sector = []
+    power  = []
+    temp   = []
+    
+    procs = []
+    for drive in drives:
+        # shortname = drive.split('/')[-1]
+        proc = subprocess.Popen('sudo /usr/sbin/smartctl -iA %s'%drive, stdout=subprocess.PIPE, shell=True)
+        procs.append( (drive, proc) )
+        
+    for name, proc in procs: 
+        proc.wait() # wait for them in the order we started them.
+        out,_ = proc.communicate()
+        ident = []  # [name.split('/')[-1]]
+        for line in out.splitlines():            
+            line=line.strip()
+            print `line`
+            if len(line)==0:
+                continue
+            lowline = line.lower()
+
+            #if 'device model' in lowline:
+            #    model = line.split(':',1)[1].strip()
+            #    if '-' in model:
+            #        model = model[:model.index('-')]
+            #    ident.append( model )
+            if 'serial number' in lowline:
+                serial = line.split(':',1)[1].strip()
+                ident.append( serial )
+            elif 'Pre-fail' in line or 'Old_age' in line:  # attribute lines. CONSIDER: more robust test
+                fields = line.split()                
+                fnum   = fields[0]
+                fname  = fields[1]
+                rawval = fields[9] # TODO: fix, this probably isn't always right.
+                if '(' in rawval:
+                    rawval = rawval[:rawval.index('(')]
+    
+                for wlentry in ['(?i)allocat', '(?i)uncorrect', '(?i)pending']:
+                    if re.search(wlentry, line):
+                        sector.append( ('_'.join( ident )+'_'+fname, int(rawval,10)) )
+                        break
+
+                for wlentry in ['(?i)power', '(?i)start', '(?i)cycle']:
+                    if re.search(wlentry, line):
+                        power.append( ('_'.join( ident )+'_'+fname, int(rawval,10)) )
+                        break
+
+                for wlentry in ['(?i)temper']:                    
+                    if re.search(wlentry, line):
+                        temp.append( ('_'.join( ident )+'_'+fname, int(rawval,10)) )
+                        break
+                                        
+    return sector, power, temp
+
+
+if len(sys.argv) == 2 and sys.argv[1] == "autoconf":
+    print "yes"
+
+config = (len(sys.argv) == 2 and sys.argv[1] == "config")
+    
+
+
+sector, power, temp = parse_smartctl()
+
+print "multigraph smart_attributes_sector"
+if config:
+    print 'graph_title SMART - early warning signs'
+    print 'graph_vlabel   count'
+    print 'graph_category disk'
+    print 'graph_scale    no' 
+    print 'graph_height   80'
+    print 'graph_args     -l 0'
+    for var,val in sector:
+        safename = var.encode('hex_codec')
+        print '_%s.label %s'%(safename, var)
+        print '_%s.draw LINE1'%(safename)
+        print '_%s.type GAUGE'%(safename)
+        print '_%s.warning 1'%(safename)
+        print '_%s.critical 70'%(safename)
+else:
+    for var,val in sector:
+        safename = var.encode('hex_codec')
+        print '_%s.value %s'%(safename,val)
+
+print "multigraph smart_attributes_power"
+if config:
+    print 'graph_title SMART - usage: hours and cycles'
+    print 'graph_category disk'
+    print 'graph_scale    no' 
+    print 'graph_args     -l 0'
+    for var,val in power:
+        safename = var.encode('hex_codec')
+        print '_%s.label %s'%(safename, var)
+        print '_%s.draw LINE1'%(safename)
+        print '_%s.type GAUGE'%(safename)
+        if 'Power_On_Hours' in var:
+            print '_%s.warning 26280' # 3 years
+else:
+    for var,val in power:
+        safename = var.encode('hex_codec')
+        print '_%s.value %s'%(safename,val)
+    
+
+print "multigraph smart_attributes_temp"
+if config:    
+    print 'graph_title SMART - temperatures'
+    print 'graph_category disk'
+    print 'graph_scale    no' 
+    for var,val in temp:
+        safename = var.encode('hex_codec')
+        print '_%s.label %s'%(safename, var)
+        print '_%s.draw LINE1'%(safename)
+        print '_%s.type GAUGE'%(safename)
+else:
+    for var,val in temp:
+        safename = var.encode('hex_codec')
+        print '_%s.value %s'%(safename,val)
+
+
