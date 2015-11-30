@@ -1,8 +1,7 @@
 # munin-stuff
+
 Everyone's got their own munin plugins :)
-
-
-Note: Proof of concept / plaything status, in that it uses some linux specifics and isn't hugely portable.
+Note that there have proof of concept / plaything status, in that it uses some linux specifics and aren't hugely portable.
 
 
 ### diskstats_simplified
@@ -23,7 +22,7 @@ Three graphs:
 - temperatures
 
 You will probably want to run visudo to add a sudoers line like:
-munin     ALL=(root)   NOPASSWD: /usr/sbin/smartctl
+        munin     ALL=(root)   NOPASSWD: /usr/sbin/smartctl
 
 TODO: more meaningfull things for SSDs. More robustness.
 
