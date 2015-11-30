@@ -2,7 +2,7 @@
 Everyone's got their own munin plugins :)
 
 
-Note: Uses some linux specifics, and processes subprocess specifics, so these are more proof-of-concept that robustly portable.
+Note: Proof of concept / plaything status, in that it uses some linux specifics and isn't hugely portable.
 
 
 ### diskstats_simplified
@@ -30,5 +30,5 @@ TODO: more meaningfull things for SSDs. More robustness.
 
 ### user_cpu
 
-Attempts to record user's CPU use -- and tries to categorize daemons and kernel processes a bit (database, web, appsupport, filesystem, services, kernel).
-(That categorizing can use a lot of work)
+Attempts to record CPU use per user. For kernel/daemon stuff it tries to categorize a bit, e.g. into database, web, appsupport, filesystem, services, kernel.
+(That categorizing can use a bunch of work)
