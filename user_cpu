@@ -1,0 +1,248 @@
+#!/usr/bin/python
+""" Summarizes CPU used by different parties,
+    - looking at both process name (to sort all the root/kernel stuff usefully)
+    - and the user                 (to also summarize user use)
+
+    Note that this does not use counters (it just reads off cpu use from ps every now and then),
+    so it will generally estimate too low, and easily miss peaks.
+
+    The users graphed are the union of:
+    - all those currently using CPU        (always, but you don't want to rely on this)  
+    - all users that seem to be real       (if read_passwd==True, currently a global set to True)
+    - all those explicitly listed in here
+    ...the latter two to get history even if a user is not currently using CPU
+
+    You can probably get the cleanest graphs by setting a manual user list 
+    and using sum_other=True to have everyone else summed under '(other)'.
+    You can always add more users later (though it will only record those users from the time at which you do)
+"""
+import os
+import sys
+import subprocess
+import re
+
+read_passwd = True
+
+
+def starts_with_one_of(s, slist):
+    for tests in slist:
+        if s.startswith(tests):
+            return True
+    return False
+
+
+def cpu_per_user(sort_by_cputime=False):
+    proc = subprocess.Popen(['ps', '-e', '-o','%U%C%c'],   stdout=subprocess.PIPE,   stderr=subprocess.PIPE)
+    out,err = proc.communicate()
+    
+    d = {}
+    for line in out.splitlines()[1:]:
+        la = re.split('\s+', line)
+        user = la[0]
+        cpu = la[1]
+        cmd = ( ' '.join(la[2:]) ).lstrip('[')
+        #sys.stderr.write( `user,cpu,cmd` )
+
+        if starts_with_one_of(cmd, ('init','getty', 'upstart', 'rsyslog', 'syslog')): # non-kernel system stuff
+            user = '(kernel+system)'
+
+        elif starts_with_one_of(cmd, ('z_', 'zvol', 'zfs_', 'arc_', 'l2arc_', 'txg_', 'zil_', 'ext4', 'ecryptfs','jbd2')):
+            # filesystem-supporting processes
+            user = '(io+filesystem)'
+
+        elif starts_with_one_of(cmd, ('scsi', 'ata_', 'kswap', 'fsnotify',  'writeback')):
+            # directly related to disk IO
+            user = '(io+filesystem)'
+            
+        elif starts_with_one_of(cmd, ('rcuos', 'rcu_', 'kworker', 'ksoftirqd', 'kthreadd', 'migration', 'watchdog',
+                                      'khelper', 'kdevtmpfs', 'kworker', 'irq/')):
+            # non-driver kernel stuff
+            user = '(kernel+system)'
+
+        
+        ### no special case, so report as user,  via user map to group system stuff.
+        elif user in map_users:
+            user = map_users[user]
+                        
+        elif (sum_other  and  user not in report_users):
+            #sys.stderr.write('# unsorted user: %r\n'%user)
+            #sys.stderr.flush()
+            user='(unsorted)' # various of which could be system
+
+            
+        ### actual counting    
+        if user not in d:
+            d[user] = 0.0
+    
+        d[user] += float(cpu)
+
+        
+    for u in report_users: # ensure these are always present in the output
+        if u not in d:
+            d[u] = 0.0
+
+
+    ret = list(d.iteritems())
+
+    # sort?
+    if sort_by_cputime:
+        ret.sort(lambda a,b: cmp(b[1],a[1]))
+    else: # sort by user (makes graphed colors stable)
+        ret.sort(lambda a,b: cmp(a[0],b[0]))
+
+    return ret
+
+
+
+
+
+# map users to different names, mostly to join them in a summary.
+map_users = {
+    #'root':'(system)', # commented out, in case it's a person, and while still categorizing the things running as root
+    'root':'root',
+    
+    'xfs':'(io+filesystem)',
+    
+    'rpc':'(kernel+system)',
+    'haldaemon':'(kernel+system)',
+    'messagebus':'(kernel+system)',    
+    'shutdown':'(kernel+system)',
+    'halt':'(kernel+system)',
+    'system':'(kernel+system)',
+    'sys':'(kernel+system)',
+    'bin':'(kernel+system)',
+    'man':'(kernel+system)',
+    'daemon':'(kernel+system)',
+    'transtec':'(kernel+system)',
+    'statd':'(kernel+system)', # nfs
+    'scponly':'(kernel+system)',
+    
+    'mysql':'(database)',
+    'postgres':'(database)',
+    
+
+    'snmp':'(netservices)',
+    'avahi':'(netservices)',
+    'list':'(netservices)',
+    'news':'(netservices)',
+    'mail':'(netservices)',
+    'uucp':'(netservices)',
+    'proxy':'(netservices)',
+     'tunnel':'(netservices)',
+     'sshd':'(netservices)',
+    'memcached':'(netservices)',
+    'memcache':'(netservices)',        
+    'postfix':'(netservices)',
+
+    'message+':'(services)', #dbus-daemon
+    'ganglia':'(services)',
+    'ntp':'(services)',
+    'lp':'(services)',
+     'sync':'(services)',
+     'backup':'(services)',
+    'Debian-exim':'(services)',
+    'Debian-gdm':'(services)',
+    'hplip':'(services)',
+    'gdm':'(services)',
+    #'munin':'(services)',
+    'munin':'(munin)',
+        
+    'apache':'(web)', # (web) ?
+    'apache2':'(web)',
+    'www-data':'(web)',
+
+    # the distinctions are thin and somewhat arbitrary, but for an overview it doesn't matter too much
+
+    'solr':'(appsupport)',
+    'saned':'(appsupport)',
+    'gnats':'(appsupport)',
+    'games':'(appsupport)',
+    'tf2':'(appsupport)',
+    #'fahclient':'appsupport',
+    #'foldingathome':
+    #'':'appsupport',
+    #'':'appsupport',
+    #'':'appsupport',
+    
+    #'nobody':'(services)', # or group together with guest?    
+}
+
+sum_other = True # not clearly users, not grouped, still using CPU?   Group into '(others)'
+
+report_users = []
+
+
+if read_passwd:
+    try:
+        passwd=open('/etc/passwd')
+        for line in passwd:
+            if line.count(':')!=6:
+                continue
+
+            user,_,uid,gid,name,homedir,shell = line.split(':')
+
+            if user in ('nobody',): # often useful to leave in here
+                report_users.append(user)
+                continue
+            if 'false' in shell or 'nologin' in shell: # not a user who can log in (though can still be su'd)
+                continue
+            if not os.access(homedir,os.R_OK):
+                #print "%r doesn't exist"%homedir
+                continue
+
+            if '/var' in homedir or '/bin' in homedir or '/usr' in homedir or '/dev' in homedir: # mostly daemons:
+                continue
+            report_users.append(user)
+
+        passwd.close()
+    except:
+        raise
+        pass
+
+
+# always add these groups
+# Done after reading passwd, in case people added them in a regular UID region, or they're also login accounts
+for frm in map_users:
+    to = map_users[frm]
+    if to not in report_users:
+        report_users.append(to)
+    if frm in report_users:
+        report_users.remove(frm)
+
+
+cf = open('/proc/cpuinfo')
+core_count = 0
+for line in cf:
+    if 'core id' in line:
+        core_count += 1
+cf.close()        
+        
+if len(sys.argv) == 2 and sys.argv[1] == "autoconf":
+    print "yes"
+
+elif len(sys.argv) == 2 and sys.argv[1] == "config":
+    print 'graph_title 0 CPU per user and service'
+    print 'graph_vlabel %'
+    print 'graph_category cpu'
+    print 'graph_scale no' 
+    print 'graph_height 120'
+    
+    graph_args = ['-l 0','-u %d'%(100*core_count),'-r']
+    print 'graph_args %s'%(' '.join(graph_args))
+
+    first=True
+    for user,cpu in cpu_per_user():
+        safename=user.encode('hex_codec')
+        print '_%s.label %s'%(safename,user)
+	if first:
+	    print '_%s.draw AREA'%(safename)
+	else:
+            print '_%s.draw STACK'%(safename)
+	print '_%s.type GAUGE'%(safename)
+	first=False
+
+else: 
+    # current values
+    for user,cpu in cpu_per_user():
+        print '_%s.value %s'%(user.encode('hex_codec'),int(round(cpu,0)))
+	

@@ -2,6 +2,8 @@
 Everyone's got their own munin plugins :)
 
 
+Note: Uses some linux specifics, and processes subprocess specifics, so these are more proof-of-concept that robustly portable.
+
 
 ### diskstats_simplified
 Like the stock diskstats, but avoids per-device graphs and tries to use meaningful device names.
@@ -25,3 +27,8 @@ munin     ALL=(root)   NOPASSWD: /usr/sbin/smartctl
 
 TODO: more meaningfull things for SSDs. More robustness.
 
+
+### user_cpu
+
+Attempts to record user's CPU use -- and tries to categorize daemons and kernel processes a bit (database, web, appsupport, filesystem, services, kernel).
+(That categorizing can use a lot of work)
