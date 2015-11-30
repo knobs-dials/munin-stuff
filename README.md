@@ -8,8 +8,8 @@ Note that there have proof of concept / plaything status, in that it uses some l
 Like the stock diskstats, but avoids per-device graphs and tries to use meaningful device names.
 
 Yields four graphs:
-* throughput of each devices in a STACKed graph (read and write separately)
-* IOPS of each device, in one STACKed graph.
+* throughput of each devices, STACKed (read and write separately)
+* IOPS of each device, STACKed
 * wait time 
 * utilization
 
@@ -22,6 +22,7 @@ Three graphs:
 - temperatures
 
 You will probably want to run visudo to add a sudoers line like:
+
         munin     ALL=(root)   NOPASSWD: /usr/sbin/smartctl
 
 TODO: more meaningfull things for SSDs. More robustness.
