@@ -214,24 +214,6 @@ def state_diff(prev_state, cur_state, debugprint=False):
         ret[devname]['writewait_mspersecond']  = int( float(write_wait_ms)/timediff_sec ) 
         
         if debugprint and 1:
-            from helpers_format import kmg
-            
-            print '\n--- diffstats for %r--- '%devname
-            print ' previous state from %.1f seconds ago'%timediff_sec
-
-            print "Total IOs: %-7d  IOPS: %-7.1f    read%%: %-3d    write%%: %-3d"%( diff_reqs, iops,
-                                                                                     read_percentage, write_percentage )
-            print "Total and average stalled read time:  %5d ms   %5d ms"%(read_wait_ms, float(read_wait_ms)/timediff_sec)
-            print "Total and average stalled write time: %5d ms   %5d ms"%(write_wait_ms, float(write_wait_ms)/timediff_sec)
-
-            print "Total and average activity: %d ms   %d ms each sec,   utilization: %.1f%%"%( active_ms,
-                                                                                                active_ms / timediff_sec,
-                                                                                               (active_ms / timediff_sec)/10. )
-                                                      
-            print "Total and average read size:  %9sB   %9sB/sec"%( kmg(read_bytes), kmg(read_bytes / timediff_sec) )
-            print "Total and average write size: %9sB   %9sB/sec"%( kmg(write_bytes), kmg(write_bytes / timediff_sec) )
-
-        if debugprint and 1:
             pprint.pprint(ret[devname])
 
     return ret
