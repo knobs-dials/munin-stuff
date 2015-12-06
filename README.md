@@ -32,3 +32,8 @@ TODO: more meaningfull things for SSDs. More robustness.
 
 Attempts to record CPU use per user. For kernel/daemon stuff it tries to categorize a bit, e.g. into database, web, appsupport, filesystem, services, kernel.
 (That categorizing can use a bunch of work)
+
+
+### procmem_
+
+Meant to be linked as procmem_res and/or procmem_virt, to see which processes are using / mapping the most memory.

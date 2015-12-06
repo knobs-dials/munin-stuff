@@ -1,0 +1,88 @@
+#!/usr/bin/python
+
+import os
+import sys
+import subprocess
+
+# at the very least remove all the 0-size kernel processes, but you may want this higher to show only big stuff.
+# figure in in KB, I think.
+
+
+virt = False
+res  = False
+title = '' 
+if 'virt' in os.path.basename(sys.argv[0]).lower():
+    virt = True
+    title = ' - mapped (VSZ)'
+elif 'res' in os.path.basename(sys.argv[0]).lower():
+    res = True
+    title = ' - resident size'
+else:
+    raise ValueError('Need an indication of what to fetch, _virt or _res. Make a symlink to this with that in the name.')  
+
+if virt:
+    p = subprocess.Popen('COLUMNS=100 ps -axheo vsz,cmd', stdout=subprocess.PIPE, shell=True)
+    min_size_kb = 30000
+elif res:
+    p = subprocess.Popen('COLUMNS=100 ps -axheo rss,cmd', stdout=subprocess.PIPE, shell=True)
+    min_size_kb = 10000 
+else:
+    raise ValueError('Need an indication of what to fetch, _virt or _res. Make a symlink to this with that in the name.')  
+
+    
+out,err = p.communicate()
+
+countsum={}
+for line in out.splitlines():
+    size, cmd = line.strip().split(' ',1)
+    size = int(size,10)
+
+    cmd = cmd.split(' ',1)[0]
+    if cmd.startswith('/'):
+        cmd = os.path.basename(cmd)
+    cmd = cmd.strip('+')
+    cmd = cmd.strip('-')
+    if ':' in cmd:
+        cmd = cmd[:cmd.index(':')]
+        
+    if cmd not in countsum:
+        countsum[cmd]  = size
+    else:
+        countsum[cmd] += size        
+    
+if len(sys.argv)>1 and 'config' in sys.argv[1]:
+    print "graph_title Memory use per process name%s"%title
+    print "graph_args --base 1000 -l 0"
+    print "graph_vlabel byte"
+    print "graph_category memory"
+    print 'graph_printf %5.1lf'
+
+    first = True
+    citems = countsum.items()
+    citems.sort(lambda a,b: -cmp(a[1],b[1]))
+
+    for name,size_kb in citems:
+        if size_kb < min_size_kb:
+            continue
+        safename = name.encode('hex_codec')
+        print "%s.label %s"%(safename,name)
+        print "%s.type GAUGE"%(safename,)
+        if first:
+            print "%s.draw AREA"%(safename,)
+            first = False
+        else:
+            print "%s.draw STACK"%(safename,)
+
+    print "rest.label (others)"
+    print "rest.type GAUGE"
+    print "rest.draw STACK"
+                                
+else:
+    rest = 0
+    for name in sorted(countsum):
+        if countsum[name] < min_size_kb:
+            rest += countsum[name]
+            continue
+        safename = name.encode('hex_codec')
+        print '%s.value %d'%(safename, 1024*countsum[name])
+    print 'rest.value %d'%(1024*rest)
