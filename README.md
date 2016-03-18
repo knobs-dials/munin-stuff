@@ -51,15 +51,22 @@ Meant to be linked as procmem_res and/or procmem_virt, to see which processes ar
 ### screenshots
 
 user_cpu:
+
 ![user_cpu screenshot](/screenshots/user_cpu.png?raw=true)
 
+
 procmem_res:
+
 ![procmem_res screenshot](/screenshots/procmem_res.png?raw=true)
 
+
 smart:
+
 ![smart screenshot](/screenshots/smart.png?raw=true)
 
+
 diskstats:
+
 ![diskstats screenshot](/screenshots/diskstats.png?raw=true)
 
 
