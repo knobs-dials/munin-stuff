@@ -53,12 +53,14 @@ def cpu_per_user(sort_by_cputime=False):
         elif starts_with_one_of(cmd, ('scsi', 'ata_', 'kswap', 'fsnotify',  'writeback')):
             # directly related to disk IO
             user = '(io+filesystem)'
-            
+                        
         elif starts_with_one_of(cmd, ('rcuos', 'rcu_', 'kworker', 'ksoftirqd', 'kthreadd', 'migration', 'watchdog',
                                       'khelper', 'kdevtmpfs', 'kworker', 'irq/')):
             # non-driver kernel stuff
             user = '(kernel+system)'
 
+        elif starts_with_one_of(cmd, ('icecast','liquidsoap')): # web radio
+            user = '(netservices)'            
         
         ### no special case, so report as user,  via user map to group system stuff.
         elif user in map_users:
