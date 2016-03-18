@@ -15,7 +15,6 @@ Yields four graphs:
 * wait time 
 * utilization
 
-![diskstats screenshot](/screenshots/diskstats.png?raw=true)
 
 
 ### smart_attributes
@@ -31,7 +30,7 @@ You will probably want to run visudo to add a sudoers line like:
 
 TODO: more meaningfull things for SSDs. More robustness.
 
-![smart screenshot](/screenshots/smart.png?raw=true)
+
 
 ### user_cpu
 
@@ -40,9 +39,23 @@ Tries to categorize kernel/daemon stuff a bit, e.g. into database, web, appsuppo
 (which can always use work, of course)
 
 
+
 ### procmem_
 
 Meant to be linked as procmem_res and/or procmem_virt, to see which processes are using and/or mapping the most memory.
+
+
+
+
+
+### screenshots
+
+![user_cpu screenshot](/screenshots/user_cpu.png?raw=true)
+
+![smart screenshot](/screenshots/smart.png?raw=true)
+
+![diskstats screenshot](/screenshots/diskstats.png?raw=true)
+
 
 
 
