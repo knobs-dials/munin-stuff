@@ -45,6 +45,10 @@ Tries to categorize kernel/daemon stuff a bit, e.g. into database, web, appsuppo
 Meant to be linked as procmem_res and/or procmem_virt, to see which processes are using and/or mapping the most memory.
 
 
+### nvidia
+
+Just basic utilization, memory, fan, via nvidia-smi
+
 
 
 
@@ -68,6 +72,8 @@ smart:
 diskstats:
 
 ![diskstats screenshot](/screenshots/diskstats.png?raw=true)
+
+
 
 
 

@@ -1,0 +1,144 @@
+#!/usr/bin/python
+
+import sys
+import subprocess
+
+try:
+    from xml.etree.ElementTree import * #Python 2.5.
+    import xml.etree.ElementTree as ET
+except ImportError:
+    try:
+        from elementtree.ElementTree import *
+        import elementtree.ElementTree as ET
+    except ImportError:
+        raise ImportError('Cannot find any version of ElementTree')
+
+
+    
+def list_targets():
+    targets = []
+    p = subprocess.Popen(["/usr/bin/nvidia-smi", "-L"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    for line in out.strip().splitlines():
+        if 'GPU' in line and ':' in line:
+            targets.append(  int(line.split(':')[0].split(' ')[-1])  )
+    return targets
+
+
+
+def smi_info(target):
+    ret = {'target':target}
+    cmd = ["/usr/bin/nvidia-smi", "-q", "-x", "-i", '%d'%target]
+    #print ' '.join( cmd )
+    nvidia_smi_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    nvidia_smi_proc_out, nvidia_smi_proc_err = nvidia_smi_proc.communicate()
+    if nvidia_smi_proc.returncode > 0:
+        raise Exception(nvidia_smi_proc_err)
+    etree = ET.fromstring(nvidia_smi_proc_out)
+
+    for gpu in etree.iter('gpu'):
+
+        ret['name']  = gpu.find('product_name').text
+        #gpuid = gpu.get('id')
+
+        utilization = gpu.find('utilization')
+        try:
+            ret['util'] = float(utilization.find('gpu_util').text.strip(' %'))
+        except:
+            ret['util'] = None
+
+        try:
+            ret['mem'] = float(utilization.find('memory_util').text.strip(' %'))
+        except:
+            ret['mem'] = None
+
+        try:
+            ret['fbmem_total'] = 1024.*1024.*float(gpu.find('fb_memory_usage/total').text.strip(' MiB'))
+            ret['fbmem_used'] = 1024.*1024.*float(gpu.find('fb_memory_usage/used').text.strip(' MiB'))
+            ret['fbmem_free'] = 1024.*1024.*float(gpu.find('fb_memory_usage/free').text.strip(' MiB'))
+        except:
+            raise
+            ret['fbmem_total'] = None
+            ret['fbmem_used'] = None
+            ret['fbmem_free'] = None
+
+        try:
+            ret['temp'] = float(gpu.find('temperature/gpu_temp').text.strip(' C'))
+        except:
+            ret['temp'] = None
+
+        try:
+            ret['fan_percent'] = float(gpu.find('fan_speed').text.strip(' %'))
+        except:
+            ret['fan_percent'] = None
+
+        # TODO
+        #if ret['util']:
+        #    pass
+        #if ret['mem']:
+        #    pass
+
+    return ret
+
+
+
+targets = list_targets()
+
+config = (len(sys.argv) == 2 and sys.argv[1] == "config")
+
+lines_status = []
+lines_memory = []
+
+
+for target in targets:
+    
+    target_info = smi_info( target )
+
+
+    basename = "nv%d"%target
+
+    if config:
+        lines_status.extend( [ 
+                'graph_title nVidia card stats',
+                'graph_category gpu',
+                "%s_temp.label [%d]%s temp (C)"%(basename, target, target_info['name']),
+                "%s_temp.type  GAUGE"%(basename),
+
+                "%s_fan.label [%d]%s fan (%%)"%(basename, target, target_info['name']),
+                "%s_fan.type  GAUGE"%(basename),
+        ] )
+    else:
+        lines_status.extend( [
+                "%s_temp.value %.1f"%(basename,target_info['temp']),
+                "%s_fan.value %.1f"%(basename,target_info['fan_percent']),
+                ])
+
+    if config:
+        lines_memory.extend( [
+                'graph_title nVidia card memory use',
+                'graph_category gpu',
+                "%s_fbmem_u.label [%d]%s mem used"%(basename, target, target_info['name']),
+                "%s_fbmem_u.type  GAUGE"%(basename),
+                "%s_fbmem_u.draw AREA"%(basename),
+
+                "%s_fbmem_f.label [%d]%s mem free"%(basename, target, target_info['name']),
+                "%s_fbmem_f.type  GAUGE"%(basename),
+                "%s_fbmem_f.draw STACK"%(basename),
+
+                "%s_fbmem_t.label [%d]%s mem total"%(basename, target, target_info['name']),
+                "%s_fbmem_t.type  GAUGE"%(basename),
+                "%s_fbmem_t.draw LINE1"%(basename),
+                ] )
+    else:
+        lines_memory.extend( [
+                "%s_fbmem_u.value %d"%(basename, target_info['fbmem_used']),
+                "%s_fbmem_f.value %d"%(basename, target_info['fbmem_free']),
+                "%s_fbmem_t.value %d"%(basename, target_info['fbmem_total']),
+                ] )
+
+
+print 'multigraph nvidia_status'
+print '\n'.join( lines_status )
+
+print 'multigraph nvidia_memory'
+print '\n'.join( lines_memory )
