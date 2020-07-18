@@ -35,8 +35,8 @@ def parse_smartctl():
         out,_ = proc.communicate()
         ident = []  # [name.split('/')[-1]]
         for line in out.splitlines():            
-            line=line.strip()
-            print `line`
+            line = line.strip()
+            #sys.stderr.write( str(line)+'\n' )
             if len(line)==0:
                 continue
             lowline = line.lower()
@@ -116,7 +116,7 @@ if config:
         print '_%s.draw LINE1'%(safename)
         print '_%s.type GAUGE'%(safename)
         if 'Power_On_Hours' in var:
-            print '_%s.warning 26280' # 3 years
+            print '_%s.warning 26280'%(safename) # 3 years
 else:
     for var,val in power:
         safename = var.encode('hex_codec')
