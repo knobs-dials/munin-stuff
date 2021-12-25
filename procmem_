@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+import codecs
 
 # at the very least remove all the 0-size kernel processes, but you may want this higher to show only big stuff.
 # figure in in KB, I think.
@@ -51,31 +52,31 @@ for line in out.splitlines():
         countsum[cmd] += size        
     
 if len(sys.argv)>1 and 'config' in sys.argv[1]:
-    print "graph_title Memory use per process name%s"%title
-    print "graph_args --base 1000 -l 0"
-    print "graph_vlabel byte"
-    print "graph_category memory"
-    print 'graph_printf %5.1lf'
+    print( "graph_title Memory use per process name%s"%title)
+    print( "graph_args --base 1000 -l 0")
+    print( "graph_vlabel byte")
+    print( "graph_category memory")
+    print( 'graph_printf %5.1lf')
 
     first = True
     citems = countsum.items()
-    citems.sort(lambda a,b: -cmp(a[1],b[1]))
+    citems.sort(key = lambda x:x[1], reverse=True)
 
     for name,size_kb in citems:
         if size_kb < min_size_kb:
             continue
-        safename = name.encode('hex_codec')
-        print "%s.label %s"%(safename,name)
-        print "%s.type GAUGE"%(safename,)
+        safename = codecs.encode( name.encode('u8').decode('u8') )
+        print( "%s.label %s"%(safename,name))
+        print( "%s.type GAUGE"%(safename,))
         if first:
-            print "%s.draw AREA"%(safename,)
+            print( "%s.draw AREA"%(safename,))
             first = False
         else:
-            print "%s.draw STACK"%(safename,)
+            print( "%s.draw STACK"%(safename,))
 
-    print "rest.label (others)"
-    print "rest.type GAUGE"
-    print "rest.draw STACK"
+    print( "rest.label (others)")
+    print( "rest.type GAUGE")
+    print( "rest.draw STACK")
                                 
 else:
     rest = 0
@@ -83,6 +84,6 @@ else:
         if countsum[name] < min_size_kb:
             rest += countsum[name]
             continue
-        safename = name.encode('hex_codec')
-        print '%s.value %d'%(safename, 1024*countsum[name])
-    print 'rest.value %d'%(1024*rest)
+        safename = codecs.encode( name.encode('u8').decode('u8') )
+        print( '%s.value %d'%(safename, 1024*countsum[name]))
+    print( 'rest.value %d'%(1024*rest))

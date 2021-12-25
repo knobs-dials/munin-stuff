@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 '''
 Reads SMART attributes, reports the ones relating to sector errors.
 
@@ -9,7 +9,7 @@ import sys
 import glob
 import subprocess
 import re
-
+import codecs
 
 drives = sorted(glob.glob('/dev/sd?')) # todo: dedupe (by serial?), so we can do 's[dg]?' ?
 
@@ -27,7 +27,7 @@ def parse_smartctl():
     procs = []
     for drive in drives:
         # shortname = drive.split('/')[-1]
-        proc = subprocess.Popen('sudo /usr/sbin/smartctl -iA %s'%drive, stdout=subprocess.PIPE, shell=True)
+        proc = subprocess.Popen('sudo /usr/sbin/smartctl -iA %s'%drive, stdout=subprocess.PIPE, shell=True, encoding='utf8')
         procs.append( (drive, proc) )
         
     for name, proc in procs: 
@@ -76,7 +76,7 @@ def parse_smartctl():
 
 
 if len(sys.argv) == 2 and sys.argv[1] == "autoconf":
-    print "yes"
+    print( "yes")
 
 config = (len(sys.argv) == 2 and sys.argv[1] == "config")
     
@@ -84,58 +84,58 @@ config = (len(sys.argv) == 2 and sys.argv[1] == "config")
 
 sector, power, temp = parse_smartctl()
 
-print "multigraph smart_attributes_sector"
+print( "multigraph smart_attributes_sector")
 if config:
-    print 'graph_title SMART - early warning signs'
-    print 'graph_vlabel   count'
-    print 'graph_category disk'
-    print 'graph_scale    no' 
-    print 'graph_height   80'
-    print 'graph_args     -l 0'
+    print( 'graph_title SMART - early warning signs')
+    print( 'graph_vlabel   count')
+    print( 'graph_category disk')
+    print( 'graph_scale    no' )
+    print( 'graph_height   80')
+    print( 'graph_args     -l 0')
     for var,val in sector:
-        safename = var.encode('hex_codec')
-        print '_%s.label %s'%(safename, var)
-        print '_%s.draw LINE1'%(safename)
-        print '_%s.type GAUGE'%(safename)
-        print '_%s.warning 1'%(safename)
-        print '_%s.critical 70'%(safename)
+        safename = codecs.encode( var.encode('u8'), 'hex_codec' ).decode('u8')
+        print( '_%s.label %s'%(safename, var))
+        print( '_%s.draw LINE1'%(safename))
+        print( '_%s.type GAUGE'%(safename))
+        print( '_%s.warning 1'%(safename))
+        print( '_%s.critical 70'%(safename))
 else:
     for var,val in sector:
-        safename = var.encode('hex_codec')
-        print '_%s.value %s'%(safename,val)
+        safename = codecs.encode( var.encode('u8'), 'hex_codec' ).decode('u8')
+        print( '_%s.value %s'%(safename,val))
 
-print "multigraph smart_attributes_power"
+print( "multigraph smart_attributes_power")
 if config:
-    print 'graph_title SMART - usage: hours and cycles'
-    print 'graph_category disk'
-    print 'graph_scale    no' 
-    print 'graph_args     -l 0'
+    print( 'graph_title SMART - usage: hours and cycles')
+    print( 'graph_category disk')
+    print( 'graph_scale    no' )
+    print( 'graph_args     -l 0')
     for var,val in power:
-        safename = var.encode('hex_codec')
-        print '_%s.label %s'%(safename, var)
-        print '_%s.draw LINE1'%(safename)
-        print '_%s.type GAUGE'%(safename)
+        safename = codecs.encode( var.encode('u8'), 'hex_codec' ).decode('u8')
+        print( '_%s.label %s'%(safename, var))
+        print( '_%s.draw LINE1'%(safename))
+        print( '_%s.type GAUGE'%(safename))
         if 'Power_On_Hours' in var:
-            print '_%s.warning 26280'%(safename) # 3 years
+            print( '_%s.warning 26280'%(safename) )# 3 years
 else:
     for var,val in power:
-        safename = var.encode('hex_codec')
-        print '_%s.value %s'%(safename,val)
+        safename = codecs.encode( var.encode('u8'), 'hex_codec' ).decode('u8')
+        print( '_%s.value %s'%(safename,val))
     
 
-print "multigraph smart_attributes_temp"
+print( "multigraph smart_attributes_temp")
 if config:    
-    print 'graph_title SMART - temperatures'
-    print 'graph_category disk'
-    print 'graph_scale    no' 
+    print( 'graph_title SMART - temperatures')
+    print( 'graph_category disk')
+    print( 'graph_scale    no' )
     for var,val in temp:
-        safename = var.encode('hex_codec')
-        print '_%s.label %s'%(safename, var)
-        print '_%s.draw LINE1'%(safename)
-        print '_%s.type GAUGE'%(safename)
+        safename = codecs.encode( var.encode('u8'), 'hex_codec' ).decode('u8')
+        print( '_%s.label %s'%(safename, var))
+        print( '_%s.draw LINE1'%(safename))
+        print( '_%s.type GAUGE'%(safename))
 else:
     for var,val in temp:
-        safename = var.encode('hex_codec')
-        print '_%s.value %s'%(safename,val)
+        safename = codecs.encode( var.encode('u8'), 'hex_codec' ).decode('u8')
+        print( '_%s.value %s'%(safename,val))
 
 

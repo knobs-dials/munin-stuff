@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import time
 import os
@@ -7,7 +7,6 @@ import math
 import re
 import subprocess
 import glob
-import pwd
 
 import ET
 
@@ -22,19 +21,19 @@ nvidia_smi = "/usr/bin/nvidia-smi" # TODO: use helpers_exec's which()
 def nvidia_list_targets():
     targets = []
     cmd = [nvidia_smi, "-L"]
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf8')
     out, err = p.communicate()
     for line in out.strip().splitlines():
-        if 'GPU' in line and ':' in line:
-            targets.append(  int(line.split(':')[0].split(' ')[-1])  )
+        if b'GPU' in line and b':' in line:
+            targets.append(  int(line.split(b':')[0].split(b' ')[-1])  )
     return targets
 
 
 def nvidia_smi_info(target):
     ret = {'target':target}
-    cmd = [nvidia_smi, "-q", "-x", "-i", '%d'%target]
+    cmd = [nvidia_smi, b"-q", b"-x", b"-i", b'%d'%target]
     #print ' '.join( cmd )
-    nvidia_smi_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    nvidia_smi_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf8')
     nvidia_smi_proc_out, nvidia_smi_proc_err = nvidia_smi_proc.communicate()
     if nvidia_smi_proc.returncode > 0:
         raise Exception(nvidia_smi_proc_err)
@@ -195,7 +194,7 @@ def procs_via_ps( root_too=False):
          - pid_to_state
          - pid_to_cmd     (mostly to pretty-print the previous few)
     '''
-    p = subprocess.Popen("ps --no-header -eo uid,user,pid,%cpu,%mem,state,comm",shell=True, stdout=subprocess.PIPE)
+    p = subprocess.Popen(b"ps --no-header -eo uid,user,pid,%cpu,%mem,state,comm",shell=True, stdout=subprocess.PIPE, encoding='utf8')
     out,_ = p.communicate()
 
     peruser      = {}
@@ -213,11 +212,11 @@ def procs_via_ps( root_too=False):
         pcpu  = ll[3]
         pmem  = ll[4]
         state = ll[5]
-        cmd  = ' '.join(ll[6:])
-        if '<defunct>' in cmd:
-            cmd=cmd.replace('<defunct>','').rstrip()
+        cmd  = b' '.join(ll[6:])
+        if b'<defunct>' in cmd:
+            cmd=cmd.replace(b'<defunct>',b'').rstrip()
 
-        up='%s//%s'%(uid,cmd)
+        up=b'%d//%s'%(uid,cmd)
         if up not in user_and_procname_to_pids:
             user_and_procname_to_pids[up]=[pid]
         else:
@@ -283,21 +282,21 @@ def dirs_via_lsof(cwd_only=True, pids=None):
         cmd.extend(['-p',pidstr])
 
     t=time.time()
-    o=subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    o=subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=subprocess.PIPE, encoding='utf8')
     out,err = o.communicate()
     t=time.time()-t
     #print "Running lsof took %.3fsec"%t
 
     for line in out.splitlines():
-        if 'DIR' in line:
+        if b'DIR' in line:
             if cwd_only:
-                if not ' cwd ' in line:
+                if not b' cwd ' in line:
                     continue
             l= line.split()
             # for DIR entries the list is name,pid,user, entrytype, ?, ?, ?, dir(+extra)
             #['display.e', '32679', '521', 'cwd', 'DIR', '0,23', '4096', '310050833', '/data/beofiles-2/spanico/David', '(beofiles-2:/data/beofiles-2)']
 
-            dirv = ' '.join(l[8:9]) # and no more, because of the way NFS entries are printed
+            dirv = b' '.join(l[8:9]) # and no more, because of the way NFS entries are printed
             pidv = int(l[1])
             #print pidv,dirv
             if pidv not in lsof_DIR:
@@ -437,11 +436,11 @@ def cpu_diff(procstatdict1, procstatdict2):
 
 def print_cpu_diff(dd,overall=1, separate=1, colwidth=100):
     ' pretty-print the results from cpu_diff()  using colors if possible '
-    has_iowait = False
     cw=float(colwidth)
     timediff = dd.pop('timediff')
-    
-    for nm in sorted(dd, lambda a,b: cmp(dd[a]['sortkey'],dd[b]['sortkey'])):
+    d = list(dd.items())
+    d.sort( key = lambda x:x[1]['sortkey'] )
+    for nm, vals in d:
         if nm=='cpu' and not overall:
             continue
         if nm!='cpu' and not separate:
@@ -449,20 +448,20 @@ def print_cpu_diff(dd,overall=1, separate=1, colwidth=100):
 
         iowaitv=0
         irqv=0
-        userv = dd[nm]['user']
-        nicev = dd[nm]['nice']
-        sysv  = dd[nm]['sys']
-        idlev = dd[nm]['idle']
-        rest  = dd[nm]['rest']
-        if 'iowait' in dd[nm]:
-            iowaitv += dd[nm]['iowait']
-        if 'irq' in dd[nm]:
-            irqv += dd[nm]['irq']
-        if 'softirq' in dd[nm]:
-            irqv += dd[nm]['softirq']
+        userv = vals['user']
+        nicev = vals['nice']
+        sysv  = vals['sys']
+        idlev = vals['idle']
+        rest  = vals['rest']
+        if 'iowait' in vals:
+            iowaitv += vals['iowait']
+        if 'irq' in vals:
+            irqv += vals['irq']
+        if 'softirq' in vals:
+            irqv += vals['softirq']
         tot=sum([userv,nicev,sysv,idlev,iowaitv,irqv,rest])
         if tot==0:
-            # That would mea --n what? No counting? But we're talking USER_HZ.
+            # That would mean -- what? No counting? But we're talking USER_HZ.
             # The only reason that should happen is
             #idle=1
             pass
@@ -477,17 +476,16 @@ def print_cpu_diff(dd,overall=1, separate=1, colwidth=100):
             restf   = round( (cw*rest)/tot )
             # CONSIDER: forcefully making it sum to 100 by taking leftovers from user
         except ZeroDivisionError:
-            print nm
-            print sum([userv,nicev,sysv,idlev,iowaitv,irqv,rest])
-            print tot
-            print dd
+            print( nm)
+            print( sum([userv,nicev,sysv,idlev,iowaitv,irqv,rest]))
+            print( tot)
+            print( dd)
             raise
         
         def scalestring(s,amount):
             ''' e.g. 'nice',12 == 'nicenicenice', 'nice',2 == 'ni' '''
             return (s*amount)[:amount] # yeah, the first * is way overkill. Shorter to write, though :)
-
-
+        
         sys.stderr.write( sc.brightgrey('%7s '%nm) )
         sys.stderr.write( sc.darkgray('') )
         sys.stderr.write(  sc.black(sc.bggreen(       scalestring('_',           int(userf)  )  ) ) )
@@ -550,7 +548,7 @@ def df(local_only=True, ignore_types=(), ignore_systemtypes=True):
         cmd = 'df -l'
     else:
         cmd = 'df'
-    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf8')
     out, err = p.communicate()
     ret = {}
     for line in out.splitlines()[1:]:
@@ -664,11 +662,11 @@ def disk_interesting_statpaths(ignore_loop=True, ignore_ram=True, ignore_floppy=
     ret = []
     for devstatpath in glob.glob( '/sys/block/*/stat'):
         devname = devstatpath[11:-5] # /sys/block/*/stat
-    	if ignore_loop and '/loop' in devstatpath:
+        if ignore_loop and '/loop' in devstatpath:
             continue
-    	if ignore_ram and '/ram' in devstatpath:
+        if ignore_ram and '/ram' in devstatpath:
             continue
-    	if ignore_floppy and '/fd' in devstatpath:
+        if ignore_floppy and '/fd' in devstatpath:
             continue
         ret.append( (devname, '/dev/%s'%devname, devstatpath) )
     return ret
@@ -996,7 +994,7 @@ def print_net_diff(dd, colwidth=50., minshow_byps=20000, only_with_ip=True):
         rxw = fw(rxdiff)
         txw = fw(txdiff)
 
-        if only_with_ip   and   ('ip' not in dd[name]  or  len(dd[name]['ip'])==0):
+        if only_with_ip   and   ('ip' not in dd[name]  or  dd[name]['ip']==None or len(dd[name]['ip'])==0):
             continue
 
         sys.stderr.write( sc.brightgrey( ('%%%ds'%maxnamelen)%name))
@@ -1096,20 +1094,20 @@ if __name__ == '__main__':
 
     import pprint 
 
-    print
-    print " == GPU stats == "
+    print('')
+    print( " == GPU stats == ")
     try:
         for target in nvidia_list_targets():
             pprint.pprint( nvidia_smi_info(target) ) 
     except OSError:
-        print "Couldn't get nvidia GPU infor. nvidia-smi probably missing"
+        print( "Couldn't get nvidia GPU infor. nvidia-smi probably missing")
 
     #print " == Process stats - perprocess() == "
     #pprint.pprint( perprocess() )
 
 
-    print
-    print " == Process stats - procs_via_ps == "
+    print('')
+    print( " == Process stats - procs_via_ps == ")
     peruser, user_and_procname_to_pids, pid_to_cpu, pid_to_mem, pid_to_state, pid_to_cmd = procs_via_ps()
     #pprint.pprint( peruser )
     #pprint.pprint( user_and_procname_to_pids )
@@ -1118,17 +1116,17 @@ if __name__ == '__main__':
     for pid in pid_to_cpu:
         cpu_percent = pid_to_cpu[pid]
         if cpu_percent>1:
-            print '%5s%% CPU: PID %s, CMD %r'%(cpu_percent, pid, pid_to_cmd[pid])
+            print( '%5s%% CPU: PID %s, CMD %r'%(cpu_percent, pid, pid_to_cmd[pid]))
 
-    #print "Larger memory users"
+    #print( "Larger memory users")
     for pid in pid_to_mem:
         mem_percent = pid_to_mem[pid]
         if mem_percent>1:
-            print '%5s%% memory: PID %s, CMD %r'%(mem_percent, pid, pid_to_cmd[pid])
+            print( '%5s%% memory: PID %s, CMD %r'%(mem_percent, pid, pid_to_cmd[pid]))
         
 
     if 1:
-        #print " Non-sleeping processes:"
+        #print( " Non-sleeping processes:")
         state_to_pids = {}
         for pid in pid_to_state:
             state = pid_to_state[pid]
@@ -1136,14 +1134,14 @@ if __name__ == '__main__':
                 state_to_pids[state] = []
             state_to_pids[state].append(pid)
         for state in state_to_pids:
-            if state in 'S':
+            if state in b'S':
                 continue
-            print 'state %s:   %s'%(state, ', '.join('%s (%s)'%(pid_to_cmd[pid],pid)   for pid in state_to_pids[state]))
+            print( 'state %s:   %s'%(state, ', '.join('%s (%s)'%(pid_to_cmd[pid],pid)   for pid in state_to_pids[state])))
 
 
 
-    print
-    print " == Working dirs == "
+    print('')
+    print( " == Working dirs == ")
     wd = dirs_via_lsof()
     for pid in wd:
         dirlist = tuple(wd[pid])
@@ -1152,14 +1150,14 @@ if __name__ == '__main__':
         name = '%d (unknown)'%pid
         if pid in pid_to_cmd:
             name = pid_to_cmd[pid]
-        print '%22s   %s'%(name, dirlist)
+        print( '%22s   %s'%(name, dirlist))
 
 
 
-    print 
-    print " == Speed indicators =="
+    print ('')
+    print (" == Speed indicators ==")
 
-    print "Collecing 1 second"
+    print( "Collecing 1 second")
     c1 = cpu()
     d1 = disk()
     i1 = ifconfig_parse()
@@ -1171,25 +1169,25 @@ if __name__ == '__main__':
     i2 = ifconfig_parse()
 
     print
-    #print "CPU state snapshot"
+    #print( "CPU state snapshot")
     #pprint.pprint( c2 )
-    print "CPU previous-second difference"
+    print( "CPU previous-second difference")
     cd = cpu_diff(c1, c2)
     for k in cd:
-        print ' %6s %s'%(k, cd[k])
+        print( ' %6s %s'%(k, cd[k]))
 
     print
     #print "Disk state snapshot"
     #pprint.pprint( d2 )
-    print "Disk previous-second difference"
+    print( "Disk previous-second difference")
     dd = disk_diff(d1, d2)
     for k in dd:
-        print ' %6s %s'%(k, dd[k])
+        print( ' %6s %s'%(k, dd[k]))
 
-    print
+    print('')
     #print "Network state snapshot"
     #pprint.pprint( i2 )
-    print "Network previous-second difference"
+    print( "Network previous-second difference")
     nd = net_diff(i1, i2)
     for k in nd:
-        print ' %6s %s'%(k, nd[k])
+        print( ' %6s %s'%(k, nd[k]))
